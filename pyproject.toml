@@ -68,8 +68,8 @@ dev = [
 anzar = "anzar.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/anzar/anzar-agent"
-Issues = "https://github.com/anzar/anzar-agent/issues"
+Homepage = "https://github.com/ghaaith/anzar-agent"
+Issues = "https://github.com/ghaaith/anzar-agent/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/anzar"]
