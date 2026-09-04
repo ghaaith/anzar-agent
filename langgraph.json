@@ -1,0 +1,7 @@
+{
+  "env": ".env",
+  "dependencies": ["."],
+  "graphs": {
+    "anzar": "./scripts/langgraph_entry.py:graph"
+  }
+}
