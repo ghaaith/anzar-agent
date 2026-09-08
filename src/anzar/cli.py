@@ -1008,9 +1008,61 @@ def _cmd_checkpoint(known, db: Session, workspace_path: str) -> None:
     console.print("\nUse [bold]anzar diff[/bold] to review or [bold]anzar rollback[/bold] to restore.")
 
 
+def _print_diff_lists(diff) -> None:
+    """Print the Added/Modified/Deleted sections of a DiffResult."""
+    if diff.added:
+        console.print("\n[green]Added:[/green]")
+        for f in diff.added:
+            console.print(f"  + {f}")
+    if diff.modified:
+        console.print("\n[yellow]Modified:[/yellow]")
+        for f in diff.modified:
+            console.print(f"  ~ {f}")
+    if diff.deleted:
+        console.print("\n[red]Deleted:[/red]")
+        for f in diff.deleted:
+            console.print(f"  - {f}")
+
+
+def _cmd_diff_between(known, db: Session, workspace_path: str) -> None:
+    """``anzar diff <idA>..<idB>`` — show changes between two checkpoints."""
+    from uuid import UUID as _UUID
+
+    from anzar.checkpoint import compute_diff_between
+
+    left, _, right = known.id.partition("..")
+    try:
+        id_a = _UUID(left.strip())
+        id_b = _UUID(right.strip())
+    except ValueError:
+        console.print("[red]Invalid checkpoint IDs. Expected <idA>..<idB>[/red]")
+        return
+
+    cp_a = db.query(Checkpoint).filter(Checkpoint.id == id_a).first()
+    cp_b = db.query(Checkpoint).filter(Checkpoint.id == id_b).first()
+    if cp_a is None or cp_b is None:
+        console.print("[yellow]One or both checkpoints not found.[/yellow]")
+        return
+    if cp_a.ordinal > cp_b.ordinal:
+        cp_a, cp_b = cp_b, cp_a  # always diff older -> newer
+    try:
+        diff = compute_diff_between(cp_a.id, cp_b.id, workspace_path, db)
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[red]Diff failed: {e}[/red]")
+        return
+    console.print(f"[bold]Workspace:[/bold] {workspace_path}")
+    console.print(f"[bold]Checkpoint {cp_a.id}[/bold]  →  [bold]Checkpoint {cp_b.id}[/bold]")
+    console.print(f"  {diff.summary}")
+    _print_diff_lists(diff)
+
+
 def _cmd_diff(known, db: Session, workspace_path: str) -> None:
-    """``anzar diff`` — show changes since a checkpoint."""
+    """``anzar diff`` — show changes since a checkpoint, or between two (A..B)."""
     from anzar.checkpoint import compute_diff, get_latest_checkpoint
+
+    if known.id and ".." in known.id:
+        _cmd_diff_between(known, db, workspace_path)
+        return
 
     if known.id:
         from uuid import UUID as _UUID
@@ -1033,18 +1085,7 @@ def _cmd_diff(known, db: Session, workspace_path: str) -> None:
     console.print(f"[bold]Workspace:[/bold] {workspace_path}")
     console.print(f"[bold]Checkpoint {cp.id}[/bold]  →  current workspace")
     console.print(f"  {diff.summary}")
-    if diff.added:
-        console.print("\n[green]Added:[/green]")
-        for f in diff.added:
-            console.print(f"  + {f}")
-    if diff.modified:
-        console.print("\n[yellow]Modified:[/yellow]")
-        for f in diff.modified:
-            console.print(f"  ~ {f}")
-    if diff.deleted:
-        console.print("\n[red]Deleted:[/red]")
-        for f in diff.deleted:
-            console.print(f"  - {f}")
+    _print_diff_lists(diff)
 
 
 def _cmd_rollback(known, db: Session, workspace_path: str) -> None:
@@ -1156,7 +1197,9 @@ def main():
     p_cp.add_argument("--desc", default=None, help="Description of the checkpoint")
     p_cp.add_argument("--workspace", "-w", help="Workspace directory")
     p_diff = sub.add_parser("diff", help="Show changes since a checkpoint", add_help=False)
-    p_diff.add_argument("id", nargs="?", default=None, help="Checkpoint ID (default: latest)")
+    p_diff.add_argument(
+        "id", nargs="?", default=None, help="Checkpoint ID, or <idA>..<idB> for a range"
+    )
     p_diff.add_argument("--workspace", "-w", help="Workspace directory")
     p_rb = sub.add_parser("rollback", help="Restore workspace to a checkpoint", add_help=False)
     p_rb.add_argument("id", nargs="?", default=None, help="Checkpoint ID (default: latest)")

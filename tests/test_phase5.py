@@ -1,154 +1,166 @@
-"""Phase 5: Profile, Usage, Rate Limiting tests."""
+"""Phase 5: profile, password, usage, rate-limit, and no-auth API tests.
 
-import os
-import sys
-from os.path import dirname
+Real pytest conversion of the former script-style harness.
+"""
 
-# Delete any previous test DB and use a fresh one
-_test_db = f"{os.path.dirname(__file__)}/test_anzar.db"
-for f in (_test_db, _test_db + "-wal", _test_db + "-shm"):
-    try:
-        os.remove(f)
-    except OSError:
-        pass
-os.environ["DATABASE_URL"] = f"sqlite:///{_test_db}"
+from __future__ import annotations
 
-from anzar.db.base import init_db
-init_db()
+import pytest
 
-from anzar.server import app
-from fastapi.testclient import TestClient
-
-c = TestClient(app)
-passed = 0
-failed = 0
+from tests.conftest import needs_llm, register_user
 
 
-def test(name: str, actual, expected, is_status=False):
-    test.__test__ = False  # script-style harness — not a pytest test
-    global passed, failed
-    if is_status:
-        ok = actual == expected
-    else:
-        ok = bool(actual)
-    status = "PASS" if ok else "FAIL"
-    if ok:
-        passed += 1
-    else:
-        failed += 1
-    print(f"  [{status}] {name}" + (f" (got {actual}, expected {expected})" if not ok and is_status else ""))
+@pytest.fixture(scope="module")
+def user(client):
+    return register_user(client, "phase5@test.com", password="pass123")
 
 
-print("\n=== PHASE 5: PROFILE, USAGE, RATE LIMITING ===")
-
-# Setup: register and login
-r = c.post("/api/auth/register", json={"name": "Test User", "email": "phase5@test.com", "password": "pass123"})
-token = r.json()["access_token"]
-headers = {"Authorization": f"Bearer {token}"}
-
-# --- Profile ---
-print("\n--- Profile ---")
-
-r = c.get("/api/profile", headers=headers)
-test("Get profile returns 200", r.status_code, 200, is_status=True)
-data = r.json()
-test("Profile has email", data["email"], "phase5@test.com")
-test("Profile has name", data["name"], "Test User")
-test("Profile has plan", data["plan"], "free")
-test("Profile has auth_provider", data["auth_provider"], "local")
-
-r = c.put("/api/profile", headers=headers, json={"name": "Updated Name"})
-test("Update profile returns 200", r.status_code, 200, is_status=True)
-test("Name was updated", r.json()["name"], "Updated Name")
-
-r = c.put("/api/profile", headers=headers, json={"email": "phase5@test.com"})
-test("Re-setting same email returns 200", r.status_code, 200, is_status=True)
-
-# Register second user to test email conflict
-c.post("/api/auth/register", json={"name": "Other", "email": "other@test.com", "password": "pass123"})
-r = c.put("/api/profile", headers=headers, json={"email": "other@test.com"})
-test("Duplicate email returns 400", r.status_code, 400, is_status=True)
-
-# --- Password ---
-print("\n--- Password Change ---")
-
-r = c.put("/api/profile/password", headers=headers, json={
-    "current_password": "pass123",
-    "new_password": "newpass123"
-})
-test("Change password returns 200", r.status_code, 200, is_status=True)
-test("Change password status ok", r.json()["status"], "ok")
-
-# Login with new password
-r = c.post("/api/auth/login", json={"email": "phase5@test.com", "password": "newpass123"})
-test("Login with new password works", r.status_code, 200, is_status=True)
-
-# Wrong current password
-r = c.put("/api/profile/password", headers=headers, json={
-    "current_password": "wrong",
-    "new_password": "another123"
-})
-test("Wrong current password returns 400", r.status_code, 400, is_status=True)
-
-# Short password
-r = c.put("/api/profile/password", headers=headers, json={
-    "current_password": "newpass123",
-    "new_password": "123"
-})
-test("Short password returns 400", r.status_code, 400, is_status=True)
-
-# --- Usage ---
-print("\n--- Usage ---")
-
-r = c.get("/api/usage/summary", headers=headers)
-test("Usage summary returns 200", r.status_code, 200, is_status=True)
-data = r.json()
-test("Summary has total_tokens", isinstance(data["total_tokens"], int), True)
-test("Summary has total_actions", isinstance(data["total_actions"], int), True)
-test("Summary has plan", data["plan"], "free")
-test("Summary has token_limit", data["token_limit"], 10000)
-test("Summary has daily list", isinstance(data["daily"], list), True)
-
-r = c.get("/api/usage/history", headers=headers)
-test("Usage history returns 200", r.status_code, 200, is_status=True)
-test("History is a list", isinstance(r.json(), list), True)
-
-# Send a chat to generate usage
-c.post("/api/conversations", headers=headers, json={"title": "Usage Test"})
-conv_id = c.get("/api/conversations", headers=headers).json()[0]["id"]
-c.post("/api/chat", headers=headers, json={"message": "Hello", "conversation_id": conv_id})
-
-r = c.get("/api/usage/summary", headers=headers)
-data = r.json()
-test("Usage recorded after chat", data["total_actions"] > 0, True)
-
-r = c.get("/api/usage/history", headers=headers)
-test("History has entries after chat", len(r.json()) > 0, True)
-
-# --- Rate Limiting ---
-print("\n--- Rate Limiting ---")
-
-# Rate limit should not block unauthenticated requests
-r = c.get("/api/health")
-test("Health check still works", r.status_code, 200, is_status=True)
-
-# Authenticated requests should work
-r = c.get("/api/usage/summary", headers=headers)
-test("Authenticated request works", r.status_code, 200, is_status=True)
-
-# --- No Auth ---
-print("\n--- No Auth ---")
-
-r = c.get("/api/profile")
-test("Profile without auth returns 401", r.status_code, 401, is_status=True)
-
-r = c.get("/api/usage/summary")
-test("Usage without auth returns 401", r.status_code, 401, is_status=True)
-
-r = c.put("/api/profile", json={"name": "No Auth"})
-test("Update profile without auth returns 401", r.status_code, 401, is_status=True)
+@pytest.fixture(scope="module")
+def other_user(client):
+    return register_user(client, "other@test.com", name="Other")
 
 
-print("\n" + "=" * 50)
-print(f"Results: {passed} passed, {failed} failed, {passed + failed} total")
-print("=" * 50)
+@pytest.fixture(scope="module")
+def auth_headers(user):
+    return {"Authorization": f"Bearer {user['access_token']}"}
+
+
+# ---------------------------------------------------------------------------
+# Profile
+# ---------------------------------------------------------------------------
+
+
+def test_get_profile(client, auth_headers, user):
+    r = client.get("/api/profile", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["email"] == user["email"]
+    assert data["name"] == "Test User"
+    assert data["plan"] == "free"
+    assert data["auth_provider"] == "email"
+
+
+def test_update_profile_name(client, auth_headers):
+    r = client.put("/api/profile", headers=auth_headers, json={"name": "Updated Name"})
+    assert r.status_code == 200
+    assert r.json()["name"] == "Updated Name"
+
+
+def test_update_profile_same_email_ok(client, auth_headers, user):
+    r = client.put("/api/profile", headers=auth_headers, json={"email": user["email"]})
+    assert r.status_code == 200
+
+
+def test_update_profile_duplicate_email_400(client, auth_headers, other_user):
+    r = client.put("/api/profile", headers=auth_headers, json={"email": other_user["email"]})
+    assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Password
+# ---------------------------------------------------------------------------
+
+
+def test_change_password_and_login(client, auth_headers, user):
+    r = client.put(
+        "/api/profile/password",
+        headers=auth_headers,
+        json={"current_password": "pass123", "new_password": "newpass456"},
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
+
+    r = client.post("/api/auth/login", json={"email": user["email"], "password": "newpass456"})
+    assert r.status_code == 200
+
+    # Restore the original password so subsequent tests stay valid.
+    r = client.put(
+        "/api/profile/password",
+        headers=auth_headers,
+        json={"current_password": "newpass456", "new_password": "pass123"},
+    )
+    assert r.status_code == 200
+
+
+def test_change_password_wrong_current_400(client, auth_headers):
+    r = client.put(
+        "/api/profile/password",
+        headers=auth_headers,
+        json={"current_password": "wrong", "new_password": "another123"},
+    )
+    assert r.status_code == 400
+
+
+def test_change_password_too_short_400(client, auth_headers):
+    r = client.put(
+        "/api/profile/password",
+        headers=auth_headers,
+        json={"current_password": "pass123", "new_password": "123"},
+    )
+    assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Usage
+# ---------------------------------------------------------------------------
+
+
+def test_usage_summary_shape(client, auth_headers):
+    r = client.get("/api/usage/summary", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert isinstance(data["total_tokens"], int)
+    assert isinstance(data["total_actions"], int)
+    assert data["plan"] == "free"
+    assert data["token_limit"] == 10000
+    assert isinstance(data["daily"], list)
+
+
+def test_usage_history_shape(client, auth_headers):
+    r = client.get("/api/usage/history", headers=auth_headers)
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
+
+
+@needs_llm
+def test_usage_recorded_after_chat(client, auth_headers):
+    r = client.post("/api/conversations", headers=auth_headers, params={"title": "Usage Test"})
+    conv_id = r.json()["id"]
+    r = client.post(
+        "/api/chat", headers=auth_headers, json={"message": "Hello", "conversation_id": conv_id}
+    )
+    assert r.status_code == 200
+
+    r = client.get("/api/usage/summary", headers=auth_headers)
+    assert r.json()["total_actions"] > 0
+
+    r = client.get("/api/usage/history", headers=auth_headers)
+    assert len(r.json()) > 0
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting / no-auth
+# ---------------------------------------------------------------------------
+
+
+def test_health_unauthenticated(client):
+    r = client.get("/api/health")
+    assert r.status_code == 200
+
+
+def test_authenticated_request_works(client, auth_headers):
+    r = client.get("/api/usage/summary", headers=auth_headers)
+    assert r.status_code == 200
+
+
+def test_profile_without_auth_401(client):
+    assert client.get("/api/profile").status_code == 401
+
+
+def test_usage_without_auth_401(client):
+    assert client.get("/api/usage/summary").status_code == 401
+
+
+def test_update_profile_without_auth_401(client):
+    r = client.put("/api/profile", json={"name": "No Auth"})
+    assert r.status_code == 401

@@ -18,6 +18,7 @@ from sqlalchemy.pool import StaticPool
 from anzar.checkpoint import (
     CheckpointResult,
     compute_diff,
+    compute_diff_between,
     compute_diff_from_result,
     create_checkpoint,
     format_task_history,
@@ -92,6 +93,50 @@ def test_diff_no_changes(tmp_path):
     diff = compute_diff(cp.id, str(tmp_path), db)
     assert diff.has_changes is False
     assert diff.summary == "No changes"
+
+
+def test_diff_between_file_based(tmp_path):
+    (tmp_path / "main.py").write_text("a = 1\n", encoding="utf-8")
+    (tmp_path / "keep.py").write_text("keep\n", encoding="utf-8")
+
+    db = _make_db()
+    cp_a = create_checkpoint(str(tmp_path), db=db, description="older")
+
+    # Modify, add, and delete between checkpoints.
+    (tmp_path / "main.py").write_text("a = 2\n", encoding="utf-8")
+    (tmp_path / "new.py").write_text("n = 1\n", encoding="utf-8")
+    (tmp_path / "keep.py").unlink()
+
+    cp_b = create_checkpoint(str(tmp_path), db=db, description="newer")
+
+    diff = compute_diff_between(cp_a.id, cp_b.id, str(tmp_path), db)
+    assert "main.py" in diff.modified
+    assert "new.py" in diff.added
+    assert "keep.py" in diff.deleted
+    assert diff.has_changes is True
+
+
+def test_diff_between_identical_checkpoints(tmp_path):
+    (tmp_path / "main.py").write_text("a = 1\n", encoding="utf-8")
+    db = _make_db()
+    cp_a = create_checkpoint(str(tmp_path), db=db)
+    cp_b = create_checkpoint(str(tmp_path), db=db)
+    diff = compute_diff_between(cp_a.id, cp_b.id, str(tmp_path), db)
+    assert diff.has_changes is False
+    assert diff.unchanged == 1
+
+
+def test_diff_between_unknown_checkpoint_raises(tmp_path):
+    import uuid as _uuid
+
+    (tmp_path / "main.py").write_text("a = 1\n", encoding="utf-8")
+    db = _make_db()
+    cp = create_checkpoint(str(tmp_path), db=db)
+    try:
+        compute_diff_between(_uuid.uuid4(), cp.id, str(tmp_path), db)
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -277,4 +322,23 @@ def test_git_checkpoint_rollback_restores_baseline(tmp_path):
 
     restored = rollback_checkpoint(cp.id, str(tmp_path), db)
     assert (tmp_path / "base.txt").read_text(encoding="utf-8") == "pre-change\n"
-    assert restored  # at least one file restored
+
+
+@pytest.mark.skipif(not GIT_AVAILABLE, reason="git not installed")
+def test_diff_between_git_checkpoints(tmp_path):
+    _init_git_repo(tmp_path)
+    db = _make_db()
+
+    cp_a = create_checkpoint(str(tmp_path), db=db, description="older")
+    assert cp_a.git_commit
+
+    (tmp_path / "base.txt").write_text("changed after A\n", encoding="utf-8")
+    (tmp_path / "added_after.py").write_text("x = 1\n", encoding="utf-8")
+
+    cp_b = create_checkpoint(str(tmp_path), db=db, description="newer")
+    assert cp_b.git_commit
+
+    diff = compute_diff_between(cp_a.id, cp_b.id, str(tmp_path), db)
+    assert "base.txt" in diff.modified
+    assert "added_after.py" in diff.added
+    assert diff.has_changes is True

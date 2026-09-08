@@ -376,6 +376,57 @@ def compute_diff_from_result(cp: CheckpointResult, workspace_path: str) -> DiffR
     return DiffResult()
 
 
+def _parse_manifest(raw: str | None) -> dict[str, str] | None:
+    """Parse a checkpoint's stored ``{relative_path: sha256}`` manifest."""
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def compute_diff_between(
+    id_a: uuid.UUID,
+    id_b: uuid.UUID,
+    workspace_path: str,
+    db: Session,
+) -> DiffResult:
+    """Compute the diff from checkpoint *A* (older) to checkpoint *B* (newer).
+
+    Compares the per-file sha256 manifests recorded at checkpoint time, so it
+    works for both git- and file-based checkpoints without requiring the git
+    commits or snapshot directories to still exist. ``workspace_path`` is kept
+    for symmetry with :func:`compute_diff`; manifests are self-contained.
+    """
+    cp_a = db.query(Checkpoint).filter(Checkpoint.id == id_a).first()
+    if cp_a is None:
+        raise ValueError(f"Checkpoint {id_a} not found")
+    cp_b = db.query(Checkpoint).filter(Checkpoint.id == id_b).first()
+    if cp_b is None:
+        raise ValueError(f"Checkpoint {id_b} not found")
+
+    manifest_a = _parse_manifest(cp_a.files_manifest)
+    manifest_b = _parse_manifest(cp_b.files_manifest)
+    if manifest_a is None or manifest_b is None:
+        return DiffResult()
+
+    result = DiffResult()
+    for rel in sorted(set(manifest_a) | set(manifest_b)):
+        in_a = rel in manifest_a
+        in_b = rel in manifest_b
+        if in_b and not in_a:
+            result.added.append(rel)
+        elif in_a and not in_b:
+            result.deleted.append(rel)
+        elif manifest_a[rel] != manifest_b[rel]:
+            result.modified.append(rel)
+        else:
+            result.unchanged += 1
+    return result
+
+
 def get_latest_checkpoint(workspace_path: str, db: Session) -> Checkpoint | None:
     """Get the most recent checkpoint for a workspace."""
     ws = os.path.abspath(workspace_path)

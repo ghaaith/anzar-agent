@@ -1,147 +1,185 @@
-"""Phase 1 + Phase 2 integration tests."""
+"""Phase 1 + Phase 2: auth, settings, conversations, chat, and workspace API tests.
+
+Real pytest conversion of the former script-style harness.
+"""
 
 from __future__ import annotations
 
-import os
-import sys
+import pytest
 
-# Delete any previous test DB and use a fresh one
-_test_db = f"{os.path.dirname(__file__)}/test_anzar.db"
-for f in (_test_db, _test_db + "-wal", _test_db + "-shm"):
-    try:
-        os.remove(f)
-    except OSError:
-        pass
-os.environ["DATABASE_URL"] = f"sqlite:///{_test_db}"
-
-from anzar.db.base import init_db
-init_db()
-
-from anzar.server import app
-from fastapi.testclient import TestClient
-
-c = TestClient(app)
-passed = 0
-failed = 0
+from tests.conftest import needs_llm, register_user
 
 
-def test(name: str, actual, expected, is_status=False):
-    test.__test__ = False  # script-style harness — not a pytest test
-    global passed, failed
-    if is_status:
-        ok = actual == expected
-    else:
-        ok = bool(actual)
-    status = "PASS" if ok else "FAIL"
-    if ok:
-        passed += 1
-    else:
-        failed += 1
-    print(f"  [{status}] {name}" + (f" (got {actual}, expected {expected})" if not ok and is_status else ""))
+@pytest.fixture(scope="module")
+def user(client):
+    return register_user(client, "phase1@test.com", password="123456")
 
 
-print("\n=== PHASE 1: AUTH ===")
-
-# Register
-r = c.post('/api/auth/register', json={'email':'test@test.com','password':'123456','name':'Test User'})
-test("Register", r.status_code, 200, is_status=True)
-data = r.json()
-access = data['access_token']
-refresh = data['refresh_token']
-h = {'Authorization': f'Bearer {access}'}
-
-# Login
-r = c.post('/api/auth/login', json={'email':'test@test.com','password':'123456'})
-test("Login", r.status_code, 200, is_status=True)
-
-# Refresh
-r = c.post('/api/auth/refresh', json={'refresh_token': refresh})
-test("Refresh token", r.status_code, 200, is_status=True)
-
-# Me
-r = c.get('/api/auth/me', headers=h)
-test("Get me", r.status_code, 200, is_status=True)
-test("Me has plan", r.json().get('plan'), True)
-
-# Settings
-r = c.put('/api/settings', headers=h, json={'provider':'gemini','model':'gemini-2.5-pro'})
-test("Update settings", r.status_code, 200, is_status=True)
-r = c.get('/api/settings', headers=h)
-test("Get settings", r.json().get('model'), 'gemini-2.5-pro')
-
-# Conversations
-r = c.post('/api/conversations', headers=h, params={'title':'Test Chat'})
-test("Create conversation", r.status_code, 200, is_status=True)
-conv_id = r.json()['id']
-
-r = c.get('/api/conversations', headers=h)
-test("List conversations", len(r.json()), 1)
-
-# Chat
-r = c.post('/api/chat', headers=h, json={'message':'Hello','conversation_id': conv_id})
-test("Chat", r.status_code, 200, is_status=True)
-
-# Error cases
-r = c.post('/api/auth/register', json={'email':'test@test.com','password':'123456','name':'Dup'})
-test("Duplicate register (400)", r.status_code, 400, is_status=True)
-r = c.post('/api/auth/login', json={'email':'test@test.com','password':'wrong'})
-test("Wrong password (401)", r.status_code, 401, is_status=True)
-r = c.get('/api/settings')
-test("No auth (401)", r.status_code, 401, is_status=True)
+@pytest.fixture(scope="module")
+def auth_headers(user):
+    return {"Authorization": f"Bearer {user['access_token']}"}
 
 
-print("\n=== PHASE 2: WORKSPACE / SANDBOX ===")
-
-# Get workspace status
-r = c.get('/api/workspace/status', headers=h)
-test("Workspace status", r.status_code, 200, is_status=True)
-ws_data = r.json()
-test("Workspace has disk_path", ws_data.get('disk_path'), True)
-test("Workspace status is stopped", ws_data.get('status'), 'stopped')
-test("Workspace has disk_limit", ws_data.get('disk_limit_mb'), True)
-
-# Start workspace (subprocess mode since no Docker)
-r = c.post('/api/workspace/start', headers=h)
-test("Start workspace", r.status_code, 200, is_status=True)
-start_data = r.json()
-test("Start returns running", start_data.get('status'), 'running')
-
-# Check status after start
-r = c.get('/api/workspace/status', headers=h)
-test("Status after start", r.json().get('status'), 'running')
-
-# Stop workspace
-r = c.post('/api/workspace/stop', headers=h)
-test("Stop workspace", r.status_code, 200, is_status=True)
-test("Stop returns stopped", r.json().get('status'), 'stopped')
-
-# Check status after stop
-r = c.get('/api/workspace/status', headers=h)
-test("Status after stop", r.json().get('status'), 'stopped')
-
-# Destroy without confirmation
-r = c.post('/api/workspace/destroy', headers=h)
-test("Destroy without confirm (400)", r.status_code, 400, is_status=True)
-
-# Destroy with confirmation
-r = c.post('/api/workspace/destroy', headers=h, params={'confirm': 'DESTROY'})
-test("Destroy with confirm", r.status_code, 200, is_status=True)
-
-# Exec in subprocess mode
-r = c.post('/api/workspace/start', headers=h)
-r = c.post('/api/workspace/exec', headers=h, json={'command': 'echo hello'})
-test("Exec command", r.status_code, 200, is_status=True)
-test("Exec returns stdout", 'hello' in r.json().get('stdout', ''), True)
-
-# Exec in stopped workspace (should fail)
-r = c.post('/api/workspace/stop', headers=h)
-r = c.post('/api/workspace/exec', headers=h, json={'command': 'echo hello'})
-test("Exec on stopped (400)", r.status_code, 400, is_status=True)
+def _start(client, headers):
+    r = client.post("/api/workspace/start", headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()
 
 
-print(f"\n{'='*40}")
-print(f"Results: {passed} passed, {failed} failed, {passed+failed} total")
-print(f"{'='*40}\n")
+def _stop(client, headers):
+    r = client.post("/api/workspace/stop", headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()
 
-if __name__ == "__main__":
-    sys.exit(1 if failed > 0 else 0)
+
+# ---------------------------------------------------------------------------
+# Phase 1: Auth
+# ---------------------------------------------------------------------------
+
+
+def test_register_returns_tokens(user):
+    assert user["access_token"]
+    assert user["refresh_token"]
+
+
+def test_login_ok(client, user):
+    r = client.post("/api/auth/login", json={"email": user["email"], "password": "123456"})
+    assert r.status_code == 200
+
+
+def test_login_wrong_password_401(client, user):
+    r = client.post("/api/auth/login", json={"email": user["email"], "password": "wrong"})
+    assert r.status_code == 401
+
+
+def test_refresh_rotates_token(client, user):
+    r = client.post("/api/auth/refresh", json={"refresh_token": user["refresh_token"]})
+    assert r.status_code == 200
+    assert r.json()["access_token"]
+
+
+def test_me_returns_plan(client, auth_headers):
+    r = client.get("/api/auth/me", headers=auth_headers)
+    assert r.status_code == 200
+    assert "plan" in r.json()
+    assert r.json()["email"] == "phase1@test.com"
+
+
+def test_duplicate_register_400(client, user):
+    r = client.post(
+        "/api/auth/register",
+        json={"name": "Dup", "email": user["email"], "password": "123456"},
+    )
+    assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: Settings
+# ---------------------------------------------------------------------------
+
+
+def test_settings_update_and_read(client, auth_headers):
+    r = client.put(
+        "/api/settings",
+        headers=auth_headers,
+        json={"provider": "gemini", "model": "gemini-2.5-pro"},
+    )
+    assert r.status_code == 200
+    r = client.get("/api/settings", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["model"] == "gemini-2.5-pro"
+
+
+def test_settings_requires_auth_401(client):
+    r = client.get("/api/settings")
+    assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: Conversations + Chat
+# ---------------------------------------------------------------------------
+
+
+def test_conversations_create_and_list(client, auth_headers):
+    r = client.post("/api/conversations", headers=auth_headers, params={"title": "Test Chat"})
+    assert r.status_code == 200
+    conv_id = r.json()["id"]
+
+    r = client.get("/api/conversations", headers=auth_headers)
+    assert r.status_code == 200
+    assert [c["id"] for c in r.json()] == [conv_id]
+
+
+def test_chat_requires_auth_401(client):
+    r = client.post("/api/chat", json={"message": "Hello"})
+    assert r.status_code == 401
+
+
+@needs_llm
+def test_chat_with_conversation(client, auth_headers):
+    r = client.post("/api/conversations", headers=auth_headers, params={"title": "Chat Test"})
+    conv_id = r.json()["id"]
+
+    r = client.post(
+        "/api/chat", headers=auth_headers, json={"message": "Hello", "conversation_id": conv_id}
+    )
+    assert r.status_code == 200
+    assert r.json()["conversation_id"] == conv_id
+    assert r.json()["response"]
+
+
+@needs_llm
+def test_chat_creates_conversation(client, auth_headers):
+    r = client.post("/api/chat", headers=auth_headers, json={"message": "Hello"})
+    assert r.status_code == 200
+    assert r.json()["conversation_id"]
+    assert r.json()["response"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Workspace / Sandbox
+# ---------------------------------------------------------------------------
+
+
+def test_workspace_status_stopped(client, auth_headers):
+    r = client.get("/api/workspace/status", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["status"] == "stopped"
+    assert data["disk_path"]
+    assert data["disk_limit_mb"]
+
+
+def test_workspace_start_and_stop(client, auth_headers):
+    data = _start(client, auth_headers)
+    assert data["status"] == "running"
+
+    r = client.get("/api/workspace/status", headers=auth_headers)
+    assert r.json()["status"] == "running"
+
+    data = _stop(client, auth_headers)
+    assert data["status"] == "stopped"
+
+
+def test_workspace_exec_subprocess(client, auth_headers):
+    _start(client, auth_headers)
+    r = client.post("/api/workspace/exec", headers=auth_headers, json={"command": "echo hello"})
+    assert r.status_code == 200
+    assert "hello" in r.json().get("stdout", "")
+    _stop(client, auth_headers)
+
+
+def test_workspace_exec_requires_running(client, auth_headers):
+    r = client.post("/api/workspace/exec", headers=auth_headers, json={"command": "echo hi"})
+    assert r.status_code == 400
+
+
+def test_workspace_destroy_requires_confirm(client, auth_headers):
+    r = client.post("/api/workspace/destroy", headers=auth_headers)
+    assert r.status_code == 400
+
+
+def test_workspace_destroy_with_confirm(client, auth_headers):
+    r = client.post("/api/workspace/destroy", headers=auth_headers, params={"confirm": "DESTROY"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "destroyed"

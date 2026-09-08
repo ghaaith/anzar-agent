@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from anzar.checkpoint import create_checkpoint
-from anzar.cli import _resolve_subcommand_workspace
+from anzar.cli import _cmd_diff_between, _resolve_subcommand_workspace
 from anzar.config import AnzarConfig
 from anzar.db.base import Base
 
@@ -70,3 +70,23 @@ def test_falls_back_to_cwd_when_nothing_available(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result = _resolve_subcommand_workspace(_known(workspace=None), db, _config(None))
     assert result == str(tmp_path.absolute())
+
+
+def test_cmd_diff_between_prints_changes(tmp_path, capsys):
+    db = _make_db()
+    (tmp_path / "main.py").write_text("a = 1\n", encoding="utf-8")
+    cp_a = create_checkpoint(str(tmp_path), db=db, description="older")
+
+    (tmp_path / "main.py").write_text("a = 2\n", encoding="utf-8")
+    (tmp_path / "new.py").write_text("n = 1\n", encoding="utf-8")
+
+    cp_b = create_checkpoint(str(tmp_path), db=db, description="newer")
+
+    known = SimpleNamespace(id=f"{cp_a.id}..{cp_b.id}")
+    _cmd_diff_between(known, db, str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "main.py" in out
+    assert "new.py" in out
+    # Both checkpoints are labelled in the header.
+    assert str(cp_a.id) in out and str(cp_b.id) in out
