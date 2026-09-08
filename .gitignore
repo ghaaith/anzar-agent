@@ -28,12 +28,6 @@ ver_out.txt
 # LangGraph runtime state
 .langgraph_api/
 
-# Frontend / Node
-frontend/node_modules/
-frontend/.next/
-frontend/out/
-frontend/next-env.d.ts
-
 # OS/editor
 Thumbs.db
 .DS_Store
