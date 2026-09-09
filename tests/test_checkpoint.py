@@ -320,7 +320,7 @@ def test_git_checkpoint_rollback_restores_baseline(tmp_path):
     # Agent overwrites it.
     (tmp_path / "base.txt").write_text("agent overwrote\n", encoding="utf-8")
 
-    restored = rollback_checkpoint(cp.id, str(tmp_path), db)
+    rollback_checkpoint(cp.id, str(tmp_path), db)
     assert (tmp_path / "base.txt").read_text(encoding="utf-8") == "pre-change\n"
 
 

@@ -634,7 +634,6 @@ def _compact_once(messages: Sequence[BaseMessage], level: int) -> list[BaseMessa
     drop_old_system = cfg["drop_old_system"]
     trim_system = cfg["trim_system"]
 
-    n = len(messages)
     rounds = _find_rounds(messages)
     detailed: set[tuple[int, int]] = set(rounds[-keep_detailed:]) if keep_detailed else set()
     dropped: set[tuple[int, int]] = set()

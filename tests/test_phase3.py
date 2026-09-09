@@ -3,15 +3,12 @@
 import json
 import os
 import tempfile
-import uuid
 
 from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.tools import StructuredTool
 
-from anzar.agent.tools import create_tools
-from anzar.agent.prompts import AGENT_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT
-from anzar.agent.memory import ConversationMemory
 from anzar.agent.core import AnzarAgent, _CLIMemory
+from anzar.agent.prompts import AGENT_SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT
+from anzar.agent.tools import create_tools
 
 
 def _tmp_workspace():
@@ -261,6 +258,7 @@ def test_agent_tool_call_mock():
 def test_agent_stream_mock():
     """AnzarAgent.stream yields tokens from a mock LLM."""
     from unittest.mock import MagicMock
+
     from langchain_core.messages import AIMessageChunk
 
     ws = _tmp_workspace()

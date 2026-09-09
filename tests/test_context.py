@@ -9,13 +9,13 @@ import pytest
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 
 from anzar.agent.context import (
+    _SYSTEM_STUB,
     DEFAULT_COMPACTION_THRESHOLD,
     DEFAULT_EMERGENCY_RATIO,
     DEFAULT_MAX_CONTEXT_TOKENS,
     DEFAULT_OUTPUT_RESERVE_TOKENS,
     DEFAULT_REQUEST_OVERHEAD_TOKENS,
     DEFAULT_SAFETY_MARGIN_FRAC,
-    _SYSTEM_STUB,
     ContextBudget,
     PayloadTooLargeError,
     build_request_estimate,
@@ -24,8 +24,8 @@ from anzar.agent.context import (
     compact_tool_output,
     estimate_message_tokens,
     estimate_request_tokens,
-    estimate_tool_tokens,
     estimate_tokens,
+    estimate_tool_tokens,
     is_payload_too_large,
 )
 

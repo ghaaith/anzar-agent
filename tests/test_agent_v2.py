@@ -1,17 +1,13 @@
 """V2 agent upgrade tests: fast path, loop caps, retry/backoff, recovery,
 human-in-the-loop (ask_user) with on_choice, metrics, mermaid, ChoiceScreen."""
 
-import json
 import os
 import shutil
 import tempfile
-import time
-import uuid
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_core.tools import StructuredTool
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from anzar.agent.core import AnzarAgent, CANCEL_SENTINEL, _CLIMemory
+from anzar.agent.core import CANCEL_SENTINEL, AnzarAgent, _CLIMemory
 from anzar.agent.errors import (
     ErrorCategory,
     backoff_seconds,
@@ -23,7 +19,6 @@ from anzar.agent.prompts import (
     CHOICE_CANCELLED_MESSAGE,
     FAST_PATH_SYSTEM_PROMPT,
     LOOP_LIMIT_MESSAGE,
-    REPEATED_TOOL_MESSAGE,
 )
 from anzar.agent.tools import create_tools
 
@@ -457,6 +452,7 @@ def test_stream_handles_full_aimessage_chunks():
     # Newer langgraph can emit a full AIMessage (not AIMessageChunk) in
     # messages mode; iterating tool_call_chunks on it used to crash stream().
     from langchain_core.messages import AIMessageChunk
+
     from anzar.agent.core import _tool_call_slices
 
     chunk = AIMessageChunk(content="", tool_call_chunks=[])
@@ -681,7 +677,7 @@ def test_choice_screen_headless():
             await pilot.pause()
             screen = app.screen
             assert screen is not None
-            ol = screen.query_one("#choice-options")
+            assert screen.query_one("#choice-options") is not None
             # choose an option, then confirm
             await pilot.press("enter")
             await pilot.pause()

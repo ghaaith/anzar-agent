@@ -9,20 +9,20 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.styles import Style as PtStyle
+from rich import box
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich import box
-from rich.markdown import Markdown
+from sqlalchemy.orm import Session
 
 from anzar import __version__
 from anzar.agent import create_agent
@@ -36,8 +36,7 @@ from anzar.agent.providers import (
 from anzar.config import AnzarConfig
 from anzar.db.auth import hash_password
 from anzar.db.base import SessionLocal, init_db
-from anzar.db.models import Checkpoint, Conversation, Message, Settings, Task, User, Workspace
-from sqlalchemy.orm import Session
+from anzar.db.models import Checkpoint, Conversation, Message, Settings, User, Workspace
 
 CLI_USER_EMAIL = "cli@local.anzar"
 console = Console()
@@ -438,6 +437,100 @@ def _cmd_help():
 """)
 
 
+def _cmd_doctor(config: AnzarConfig, db: Session | None = None) -> None:
+    """Print environment/configuration diagnostics for support."""
+    import platform as pf
+
+    console.print(f"[bold]anzar-agent v{__version__}[/bold]")
+    console.print(f"  Python: {pf.python_version()} on {pf.system()} {pf.release()}")
+    console.print(f"  Provider: {config.provider}")
+    console.print(f"  Model:    {config.model or config.get_default_model()}")
+    console.print(f"  Workspace: {os.getcwd()}")
+    console.print(
+        f"  Config:   {Path.home() / '.anzar' / 'config.yaml'} "
+        f"[{'present' if (Path.home() / '.anzar' / 'config.yaml').exists() else 'not found'}]"
+    )
+
+    keys = []
+    if os.environ.get("ANZAR_API_KEY"):
+        keys.append("ANZAR_API_KEY (env)")
+    for pid in provider_names():
+        if pid == "ollama":
+            continue
+        env_var = _PROVIDER_ENV_VARS.get(pid)
+        if env_var and os.environ.get(env_var):
+            keys.append(f"{pid} ({env_var}, env)")
+    if db is not None:
+        user = db.query(User).filter(User.email == CLI_USER_EMAIL).first()
+        if user is not None:
+            srow = db.query(Settings).filter(Settings.user_id == user.id).first()
+            if srow and srow.api_key_encrypted:
+                keys.append(f"{srow.provider} (stored: {_mask_api_key(srow.api_key_encrypted)})")
+    keys = keys or ["none"]
+    console.print("  API key:  " + "; ".join(keys))
+
+
+def _prompt_first_run(db: Session, config: AnzarConfig, workspace_path: str, user: User) -> None:
+    """Interactive one-time setup when no provider API key is configured."""
+    console.print()
+    console.print(
+        Panel(
+            "[bold]Welcome to Anzar![/bold]\n"
+            "No API key is configured yet. Set one up now (takes ~10 seconds).",
+            border_style="blue",
+            padding=(1, 2),
+        )
+    )
+    providers = [p for p in provider_names() if p != "ollama"]
+    console.print("  [bold]Choose your AI provider:[/bold]")
+    for i, pid in enumerate(providers, 1):
+        console.print(f"    {i}. {provider_name(pid)}  [{pid}]")
+    console.print(f"    {len(providers) + 1}. Skip — I'll configure it myself")
+    try:
+        choice = console.input("  > ").strip()
+    except (EOFError, KeyboardInterrupt):
+        console.print()
+        return
+    if not choice.isdigit():
+        return
+    idx = int(choice)
+    if idx == len(providers) + 1:
+        return
+    if not (1 <= idx <= len(providers)):
+        return
+    provider = providers[idx - 1]
+
+    try:
+        key = console.input(f"  Paste your {provider_name(provider)} API key: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        console.print()
+        return
+    if not key:
+        console.print("[yellow]No key entered — skipping.[/yellow]")
+        return
+
+    # Persist the key in the CLI user's local settings row (matches /apikey).
+    srow = db.query(Settings).filter(Settings.user_id == user.id).first()
+    if srow is None:
+        srow = Settings(user_id=user.id)
+        db.add(srow)
+    srow.api_key_encrypted = key
+    srow.provider = provider
+    config.provider = provider
+    config.model = None
+    config.save()
+    db.commit()
+    console.print(f"[green]Saved[/green] — using {provider_name(provider)} ({_mask_api_key(key)}).\n")
+
+
+def _run_single_task(agent: AnzarAgent, task: str) -> None:
+    """Run one task in the current conversation and exit (one-shot mode)."""
+    if not task.strip():
+        return
+    _render_user_message(task)
+    _stream_agent_response(agent, task)
+
+
 def _cmd_model_menu(
     db,
     user: User,
@@ -746,13 +839,13 @@ def _run_legacy_repl(
             (f"Anzar v{__version__}", "bold cyan"),
             (" \u2022 AI Software Engineer Agent", "dim"),
             "\n\n",
-            (f"Workspace: ", "bold"),
+            ("Workspace: ", "bold"),
             (workspace_path, ""),
             "\n",
-            (f"Provider:  ", "bold"),
+            ("Provider:  ", "bold"),
             (f"{current_provider}", "cyan"),
             "\n",
-            (f"Model:     ", "bold"),
+            ("Model:     ", "bold"),
             (f"{current_model or config.get_default_model()}", "cyan"),
         ),
         border_style="blue",
@@ -1160,11 +1253,54 @@ def _resolve_subcommand_workspace(known, db: Session, config: "AnzarConfig") -> 
     return cwd
 
 
+_KNOWN_SUBCOMMANDS = (
+    "doctor", "graph", "benchmark", "serve",
+    "checkpoint", "diff", "rollback", "history",
+)
+_VALUE_FLAGS = ("-w", "--workspace", "--load")
+
+
+def _extract_task_arg(argv):
+    """Pull a one-shot task out of argv so ``anzar "build server"`` works.
+
+    Any bare (non-flag) argument that is not a known subcommand starts a
+    one-shot task that consumes the rest of the command line. Returns a
+    ``(filtered_argv, task)`` pair; ``task`` is ``None`` when no task is
+    present.
+    """
+    task = None
+    filtered = []
+    i = 0
+    n = len(argv)
+    while i < n:
+        a = argv[i]
+        if a in _VALUE_FLAGS:
+            filtered.append(a)
+            if i + 1 < n:
+                filtered.append(argv[i + 1])
+                i += 2
+            else:
+                i += 1
+            continue
+        if a.startswith("-"):
+            filtered.append(a)
+            i += 1
+            continue
+        if a in _KNOWN_SUBCOMMANDS:
+            filtered.extend(argv[i:])
+            break
+        task = " ".join(argv[i:])
+        break
+    return filtered, task
+
+
 def main():
     from dotenv import load_dotenv
 
     load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
     _force_utf8_output()
+
+    filtered_argv, one_shot_task = _extract_task_arg(sys.argv[1:])
 
     parser = argparse.ArgumentParser(
         description="Anzar — AI Software Engineer Agent",
@@ -1182,7 +1318,14 @@ def main():
     parser.add_argument("--legacy", action="store_true", help="Use the legacy prompt_toolkit REPL instead of the TUI")
     parser.add_argument("--version", "-v", action="store_true", help="Show version")
     parser.add_argument("--help", "-h", action="store_true", help="Show help")
+    parser.add_argument(
+        "task",
+        nargs="?",
+        default=None,
+        help="Run a single task and exit (omit to open the interactive TUI)",
+    )
     sub = parser.add_subparsers(dest="subcommand")
+    sub.add_parser("doctor", help="Show environment and configuration info", add_help=False)
     p_graph = sub.add_parser("graph", help="Print the agent graph as Mermaid", add_help=False)
     p_graph.add_argument("--fast", action="store_true", help="Show only the fast-path graph")
     p_graph.add_argument("--provider", help="Provider to build the graph for")
@@ -1208,13 +1351,19 @@ def main():
     p_hist = sub.add_parser("history", help="Show task history", add_help=False)
     p_hist.add_argument("-n", dest="limit", type=int, default=20, help="Number of entries (default: 20)")
     p_hist.add_argument("--workspace", "-w", help="Workspace directory")
-    known, _ = parser.parse_known_args()
+    known, _ = parser.parse_known_args(filtered_argv)
+    if one_shot_task is not None:
+        known.task = one_shot_task
 
     if known.help:
         parser.print_help()
-        console.print("\nRun [bold]anzar[/bold] to start the interactive REPL.")
-        console.print("Inside the REPL, type [bold]/help[/bold] for commands.\n")
-        console.print("Commands: [bold]anzar graph[/bold], [bold]anzar benchmark[/bold], [bold]anzar serve[/bold], [bold]anzar checkpoint[/bold], [bold]anzar diff[/bold], [bold]anzar rollback[/bold], and [bold]anzar history[/bold].")
+        console.print("\nRun [bold]anzar[/bold] to start the interactive TUI.")
+        console.print("Run [bold]anzar \"<task>\"[/bold] to run a single task and exit.\n")
+        console.print(
+            "Commands: [bold]anzar checkpoint[/bold], [bold]anzar diff[/bold], "
+            "[bold]anzar rollback[/bold], [bold]anzar history[/bold], "
+            "[bold]anzar doctor[/bold], and [bold]anzar serve[/bold]."
+        )
         return
 
     if known.version:
@@ -1237,6 +1386,11 @@ def main():
     init_db()
     db = SessionLocal()
     config = AnzarConfig.load()
+
+    if known.subcommand == "doctor":
+        _cmd_doctor(config, db)
+        db.close()
+        return
 
     workspace_path = (
         getattr(known, "workspace", None)
@@ -1267,6 +1421,16 @@ def main():
 
     user = _ensure_cli_user(db, workspace_path)
 
+    # First-run setup wizard (interactive, only when no provider has a key).
+    if (
+        not known.task
+        and not known.list
+        and sys.stdin.isatty()
+        and not any(_provider_has_key(p, db, user) for p in provider_names())
+    ):
+        _prompt_first_run(db, config, workspace_path, user)
+        config = AnzarConfig.load()
+
     if known.list:
         _cmd_list(db, user)
         db.close()
@@ -1281,6 +1445,17 @@ def main():
 
     agent = _build_agent(db, user, conv.id, workspace_path, config)
     msg_count = _count_messages(db, conv.id)
+
+    # One-shot mode: run the given task and exit.
+    if known.task:
+        try:
+            _run_single_task(agent, known.task)
+        finally:
+            config.last_conversation_id = str(conv.id)
+            config.last_workspace = workspace_path
+            config.save()
+            db.close()
+        return
 
     # Pipe mode
     if not sys.stdin.isatty():

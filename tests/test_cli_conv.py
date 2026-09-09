@@ -11,10 +11,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+import anzar.db.models as models
 from anzar.cli import _select_conversation
 from anzar.config import AnzarConfig
 from anzar.db.base import Base
-import anzar.db.models as models
 
 
 def _make_db_user():

@@ -1,6 +1,5 @@
 """Tests for the command execution policy (pure decision logic)."""
 
-import os
 import tempfile
 
 import pytest

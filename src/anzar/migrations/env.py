@@ -1,12 +1,11 @@
 import os
 from logging.config import fileConfig
 
+from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from alembic import context
-
 from anzar.db.base import Base
-from anzar.db.models import User, Workspace, Conversation, Message, Settings, Usage
+from anzar.db.models import Conversation, Message, Settings, Usage, User, Workspace  # noqa: F401
 
 config = context.config
 

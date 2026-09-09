@@ -27,7 +27,7 @@ from anzar.cli import (
     _set_api_key,
 )
 from anzar.config import AnzarConfig
-from anzar.db.models import Message, Settings
+from anzar.db.models import Settings
 from anzar.tui.app import AnzarTui
 from anzar.tui.events import (
     AgentError,
@@ -548,8 +548,8 @@ def _make_db_and_conv():
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy.pool import StaticPool
 
-    from anzar.db.base import Base
     import anzar.db.models  # noqa: F401  (register tables)
+    from anzar.db.base import Base
 
     engine = create_engine("sqlite://", poolclass=StaticPool)
     Base.metadata.create_all(bind=engine)
@@ -689,7 +689,7 @@ def test_tui_search_loads_conversation(monkeypatch):
     ws = _tmp_workspace()
     db, user, conv = _make_db_and_conv()
 
-    from anzar.db.models import Conversation, Message, User
+    from anzar.db.models import Conversation, Message
 
     target = Conversation(user_id=user.id, title="Search Target")
     db.add(target)

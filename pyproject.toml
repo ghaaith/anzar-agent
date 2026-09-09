@@ -74,12 +74,25 @@ Issues = "https://github.com/ghaaith/anzar-agent/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["src/anzar"]
 
+[tool.hatch.build.targets.sdist]
+exclude = [
+    ".github",
+    ".env",
+    "opencode.json",
+    "*.db",
+    "dist",
+    "scripts/benchmark_agent.py",
+    "scripts/langgraph_entry.py",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
+# Cosmetic/modernization noise; keep CI focused on real problems.
+ignore = ["E402", "E501", "N", "UP"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

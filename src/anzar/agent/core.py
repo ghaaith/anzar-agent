@@ -21,7 +21,7 @@ import logging
 import re
 import time
 import uuid
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
@@ -48,7 +48,13 @@ from anzar.agent.context import (
     is_payload_too_large,
     next_deeper_view,
 )
-from anzar.agent.errors import ErrorCategory, backoff_seconds, classify_error, intervention_message, is_retryable
+from anzar.agent.errors import (
+    ErrorCategory,
+    backoff_seconds,
+    classify_error,
+    intervention_message,
+    is_retryable,
+)
 from anzar.agent.llm import LLMProvider, friendly_error_message
 from anzar.agent.memory import ConversationMemory
 from anzar.agent.prompts import (
@@ -56,7 +62,6 @@ from anzar.agent.prompts import (
     CHOICE_CANCELLED_MESSAGE,
     FAST_PATH_SYSTEM_PROMPT,
     LOOP_LIMIT_MESSAGE,
-    REPEATED_TOOL_MESSAGE,
 )
 from anzar.agent.tools import create_tools, make_ask_user_tool
 from anzar.agent.verifier import (
@@ -69,11 +74,9 @@ from anzar.agent.verifier import (
     verification_message,
 )
 from anzar.checkpoint import (
-    CheckpointResult,
     compute_diff_from_result,
     create_checkpoint,
     record_task,
-    rollback_from_result,
 )
 from anzar.db.models import Settings, Usage, Workspace
 
@@ -894,7 +897,6 @@ class AnzarAgent:
             if block_key:
                 parts = block_key.split(":", 1)
                 tool_name = parts[0] if parts else "unknown"
-                tool_args = parts[1] if len(parts) > 1 else ""
                 alternatives = sorted(tool_names - {tool_name})
                 alt_str = ", ".join(alternatives[:8]) if alternatives else "(none)"
                 hint = (

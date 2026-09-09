@@ -79,7 +79,6 @@ class ModelPicker(ModalScreen):
         ol.focus()
 
     def on_option_list_option_selected(self, event) -> None:
-        ol = event.option_list
         if self._step == 0:
             idx = event.option_index
             if idx >= len(self._providers):

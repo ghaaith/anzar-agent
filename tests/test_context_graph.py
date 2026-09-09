@@ -20,7 +20,6 @@ from anzar.agent.core import AnzarAgent, _CLIMemory
 from anzar.agent.llm import friendly_error_message
 from anzar.agent.tools import create_tools
 
-
 # --------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------

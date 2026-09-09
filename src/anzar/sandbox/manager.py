@@ -2,22 +2,19 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
-import shutil
 import subprocess
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import docker
-from docker.errors import APIError, ImageNotFound, NotFound
+from docker.errors import ImageNotFound, NotFound
 from docker.models.containers import Container
 from sqlalchemy.orm import Session
 
-from anzar.sandbox.limits import ResourceLimits, get_limits
+from anzar.sandbox.limits import get_limits
 
 logger = logging.getLogger("anzar.sandbox")
 
@@ -46,7 +43,6 @@ class DockerSandboxManager:
         """Check if Docker daemon is reachable."""
         if self._has_docker is not None:
             return self._has_docker
-        import socket
         # Quick check: is Docker socket/pipe reachable at all?
         if self._docker_host.startswith("unix://"):
             sock_path = self._docker_host.replace("unix://", "")

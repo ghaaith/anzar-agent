@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from sqlalchemy.orm import Session
 
-from anzar.db.models import Conversation, Message
+from anzar.db.models import Message
 
 
 class ConversationMemory:

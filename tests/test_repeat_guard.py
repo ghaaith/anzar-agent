@@ -7,18 +7,15 @@
 - compact_tool_output keeps more lines for read_file results.
 """
 
-import json
 import os
 import shutil
 import tempfile
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage
 
-from anzar.agent.core import AnzarAgent, _CLIMemory
 from anzar.agent.context import _READ_FILE_SUMMARY_CHARS, compact_tool_output
-from anzar.agent.prompts import LOOP_LIMIT_MESSAGE
+from anzar.agent.core import AnzarAgent, _CLIMemory
 from anzar.agent.tools import create_tools
-
 
 # ---------------------------------------------------------------------------
 # Helpers

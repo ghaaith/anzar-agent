@@ -10,6 +10,8 @@ from pathlib import Path
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from anzar.agent.policy import CommandPolicy
+
 MAX_TOOL_OUTPUT_CHARS = 4000
 
 
@@ -71,7 +73,7 @@ def make_ask_user_tool() -> StructuredTool:
 
 def create_tools(
     workspace_path: str,
-    policy: "CommandPolicy | None" = None,
+    policy: CommandPolicy | None = None,
 ) -> list[StructuredTool]:
     """Create tool instances bound to a specific workspace path.
 
@@ -160,7 +162,7 @@ def _format_result(
     return "\n".join(lines)
 
 
-def _make_run_command(workspace_path: str, policy: "CommandPolicy | None" = None) -> StructuredTool:
+def _make_run_command(workspace_path: str, policy: CommandPolicy | None = None) -> StructuredTool:
     def run(command: str, approved: bool = False) -> str:
         from anzar.agent.policy import CommandPolicy, Verdict
         from anzar.sandbox import get_manager

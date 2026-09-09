@@ -6,7 +6,6 @@ workspace (previously it defaulted to the stale ``last_workspace``).
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 
 from sqlalchemy import create_engine

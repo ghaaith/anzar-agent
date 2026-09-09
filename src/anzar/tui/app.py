@@ -563,8 +563,8 @@ class AnzarTui(App):
 
     def _prompt_api_key(self, provider: str, model: str | None) -> None:
         """Push the masked key-prompt modal, then store + apply the model."""
-        from anzar.cli import _set_api_key
         from anzar.agent.providers import provider_name
+        from anzar.cli import _set_api_key
         from anzar.tui.screens.picker import KeyInputScreen
 
         def _on_key(key):

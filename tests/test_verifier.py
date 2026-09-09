@@ -10,8 +10,6 @@ import json
 import subprocess
 import time
 
-import pytest
-
 from anzar.agent.verifier import (
     MAX_VERIFICATION_ATTEMPTS,
     VerificationResult,

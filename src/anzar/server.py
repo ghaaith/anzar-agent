@@ -9,7 +9,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Header,
+    HTTPException,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,7 +29,7 @@ from anzar import __version__
 from anzar.api.auth import router as auth_router
 from anzar.config import settings
 from anzar.db.auth import get_current_user
-from anzar.db.base import get_db, init_db
+from anzar.db.base import get_db
 from anzar.db.models import Conversation, Message, Settings, User, Workspace
 
 logger = logging.getLogger("anzar.server")
@@ -39,6 +48,7 @@ app.add_middleware(
 # --- Rate limiting ---
 import time
 from collections import defaultdict
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
@@ -209,7 +219,7 @@ def update_profile(req: ProfileRequest, user: User = Depends(get_auth_user), db:
 def update_password(req: PasswordRequest, user: User = Depends(get_auth_user), db: Session = Depends(get_db)):
     if user.password_hash is None:
         raise HTTPException(status_code=400, detail="Account uses social login — no password to change")
-    from anzar.db.auth import verify_password, hash_password
+    from anzar.db.auth import hash_password, verify_password
     if not verify_password(req.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     if len(req.new_password) < 6:
@@ -221,8 +231,9 @@ def update_password(req: PasswordRequest, user: User = Depends(get_auth_user), d
 
 @app.get("/api/usage/summary")
 def usage_summary(user: User = Depends(get_auth_user), db: Session = Depends(get_db)):
-    from anzar.db.models import Usage
     from sqlalchemy import func as sqlfunc
+
+    from anzar.db.models import Usage
 
     total_tokens = db.query(sqlfunc.coalesce(sqlfunc.sum(Usage.tokens_used), 0)).filter(Usage.user_id == user.id).scalar()
     total_actions = db.query(sqlfunc.count(Usage.id)).filter(Usage.user_id == user.id).scalar()
@@ -626,7 +637,6 @@ async def websocket_chat(websocket: WebSocket):
             await websocket.close()
             return
 
-        conversation_id = None
         cached_agent = None
         cached_conv_id = None
 
@@ -686,6 +696,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 def run_server(host: str = "0.0.0.0", port: int = 8000):
     import threading
+
     import uvicorn
 
     # Start background health check in a separate thread
@@ -693,8 +704,8 @@ def run_server(host: str = "0.0.0.0", port: int = 8000):
         import time
         while True:
             try:
-                from anzar.sandbox import get_manager
                 from anzar.db.base import SessionLocal
+                from anzar.sandbox import get_manager
 
                 db = SessionLocal()
                 try:
@@ -735,6 +746,6 @@ def run_server(host: str = "0.0.0.0", port: int = 8000):
 
     print(f"\n  Anzar v{__version__} — AI Software Engineer Agent")
     print(f"  Server running at http://localhost:{port}")
-    print(f"  Press Ctrl+C to stop\n")
+    print("  Press Ctrl+C to stop\n")
 
     uvicorn.run(app, host=host, port=port, log_level="info")
