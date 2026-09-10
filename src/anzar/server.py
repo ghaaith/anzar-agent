@@ -530,7 +530,7 @@ def workspace_exec(
     if ws is None:
         raise HTTPException(status_code=404, detail="Workspace not found")
 
-    if ws.status != "running" and not ws.container_id:
+    if ws.status != "running":
         raise HTTPException(status_code=400, detail="Workspace is not running. Start it first.")
 
     try:
