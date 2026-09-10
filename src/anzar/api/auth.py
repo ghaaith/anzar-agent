@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import uuid
+from pathlib import Path
 from urllib.parse import urlencode
 
 import httpx
@@ -24,6 +26,16 @@ from anzar.db.base import get_db
 from anzar.db.models import Settings, User, Workspace
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+def _workspace_disk_path(user_id: uuid.UUID) -> str:
+    """Per-user workspace directory, writable without root.
+
+    Location is overridable via ``ANZAR_WORKSPACES_DIR`` (used by tests) and
+    defaults to a user-writable path instead of the historical ``/workspaces``.
+    """
+    base = os.environ.get("ANZAR_WORKSPACES_DIR") or str(Path.home() / ".anzar" / "workspaces")
+    return str(Path(base) / str(user_id))
 
 
 def get_current_user_dependency(
@@ -100,7 +112,7 @@ def _get_or_create_social_user(
     db.add(user)
     db.flush()
 
-    workspace = Workspace(user_id=user.id, disk_path=f"/workspaces/{user.id}")
+    workspace = Workspace(user_id=user.id, disk_path=_workspace_disk_path(user.id))
     db.add(workspace)
     db.add(Settings(user_id=user.id))
 
@@ -124,7 +136,7 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     db.add(user)
     db.flush()
 
-    workspace = Workspace(user_id=user.id, disk_path=f"/workspaces/{user.id}")
+    workspace = Workspace(user_id=user.id, disk_path=_workspace_disk_path(user.id))
     db.add(workspace)
     db.add(Settings(user_id=user.id))
 

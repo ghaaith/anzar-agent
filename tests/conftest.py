@@ -18,6 +18,7 @@ import pytest
 _TMP = tempfile.mkdtemp(prefix="anzar-api-")
 _TEST_DB = Path(_TMP) / "test_anzar.db"
 os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB}"
+os.environ["ANZAR_WORKSPACES_DIR"] = str(Path(_TMP) / "workspaces")
 
 from anzar.db.base import init_db  # noqa: E402
 from anzar.server import app  # noqa: E402
