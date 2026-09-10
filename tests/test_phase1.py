@@ -164,7 +164,7 @@ def test_workspace_start_and_stop(client, auth_headers):
 
 
 @pytest.mark.skipif(
-    os.environ.get("CI"),
+    os.environ.get("CI") == "true",
     reason="Docker exec is unreliable in CI containers; subprocess fallback tested locally",
 )
 def test_workspace_exec_subprocess(client, auth_headers):
