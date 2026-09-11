@@ -30,24 +30,35 @@ if (-not $Python -or "$ver" -notmatch 'Python 3') {
 }
 
 # --- 2. Bootstrap pipx ------------------------------------------------------
-$null = & $Python -m pipx --version 2>$null
-if ($LASTEXITCODE -ne 0) {
+$pvOk = $false
+$saveEA = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+& $Python -m pipx --version 2>$null
+$pvOk = $LASTEXITCODE -eq 0
+if (-not $pvOk) {
     Write-Step 'Installing pipx...'
-    & $Python -m pip install --quiet --user pipx
-    $null = & $Python -m pipx --version 2>$null
-    if ($LASTEXITCODE -ne 0) { throw 'Could not install pipx.' }
+    & $Python -m pip install --quiet --user pipx 2>$null
+    & $Python -m pipx --version 2>$null
+    $pvOk = $LASTEXITCODE -eq 0
+    if (-not $pvOk) { $ErrorActionPreference = $saveEA; throw 'Could not install pipx.' }
 }
+$ErrorActionPreference = $saveEA
 
 # --- 3. Install/upgrade anzar -----------------------------------------------
+$ErrorActionPreference = 'Continue'
 $listed = & $Python -m pipx list --short 2>$null
-if ($LASTEXITCODE -eq 0 -and $listed -match "^$Package\b") {
+$listedOk = $LASTEXITCODE -eq 0
+if ($listedOk -and $listed -match "^$Package\b") {
     Write-Step "Upgrading $Package..."
-    & $Python -m pipx upgrade $Package
+    & $Python -m pipx upgrade $Package 2>$null
+    if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = $saveEA; throw "Failed to upgrade $Package." }
 }
 else {
     Write-Step "Installing $Package..."
-    & $Python -m pipx install $Package
+    & $Python -m pipx install $Package 2>$null
+    if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = $saveEA; throw "Failed to install $Package." }
 }
+$ErrorActionPreference = $saveEA
 
 # --- 4. Make sure `anzar` is on the user PATH -------------------------------
 if (Get-Command anzar -ErrorAction SilentlyContinue) {
