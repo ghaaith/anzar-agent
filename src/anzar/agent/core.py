@@ -516,6 +516,15 @@ class AnzarAgent:
     # Graph construction
     # ------------------------------------------------------------------
 
+    def _supports_parallel_tool_calls(self) -> bool:
+        """Ollama's client rejects ``parallel_tool_calls`` in ``bind_tools``."""
+        try:
+            from langchain_ollama import ChatOllama
+
+            return not isinstance(self.llm, ChatOllama)
+        except ImportError:
+            return True
+
     def _build_graph(self, compile_graphs: bool = True) -> tuple[Any, Any]:
         """Build the tool graph and the fast graph.
 
@@ -531,9 +540,10 @@ class AnzarAgent:
         # parallel_tool_calls lets the model batch independent calls (e.g.
         # list_files + read_file) in a single round-trip for fewer LLM calls.
         bound_tools = [*self.tools, make_ask_user_tool()]
-        llm_with_tools = self.llm.bind_tools(
-            bound_tools, tool_choice="auto", parallel_tool_calls=True
-        )
+        bind_kwargs: dict[str, object] = {"tool_choice": "auto"}
+        if self._supports_parallel_tool_calls():
+            bind_kwargs["parallel_tool_calls"] = True
+        llm_with_tools = self.llm.bind_tools(bound_tools, **bind_kwargs)
         tool_node = ToolNode(bound_tools)
         tool_names = {t.name for t in bound_tools}
 
